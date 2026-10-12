@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-BioPulse Python AI Microservice
+MyoMate Python AI Microservice
 Port: 5005
 Provides AI/ML Anomaly Detection, HRV Extraction & ECG Session Comparison
 """
@@ -19,7 +19,7 @@ app = Flask(__name__)
 def index():
     return jsonify({
         "status": "online",
-        "service": "BioPulse Python AI & ML Anomaly Microservice Engine",
+        "service": "MyoMate Python AI & ML Anomaly Microservice Engine",
         "version": "1.0.0",
         "model_loaded": bool(model_manager.is_loaded),
         "model_metadata": model_manager.metadata,
@@ -34,7 +34,7 @@ def index():
 def health():
     return jsonify({
         "status": "ok",
-        "service": "BioPulse Python AI Engine",
+        "service": "MyoMate Python AI Engine",
         "version": "1.0.0",
         "model_loaded": bool(model_manager.is_loaded),
         "model_metadata": model_manager.metadata
@@ -73,7 +73,7 @@ def api_compare():
 
 if __name__ == '__main__':
     print("===========================================================")
-    print("  BioPulse Python AI & ML Anomaly Microservice Engine")
+    print("  MyoMate Python AI & ML Anomaly Microservice Engine")
     print("  Listening on http://localhost:5005")
     print("===========================================================")
 

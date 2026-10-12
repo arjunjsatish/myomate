@@ -322,7 +322,7 @@ app.get('/api/edge/status', (req, res) => {
 // Start Edge Server
 server.listen(EDGE_PORT, () => {
   console.log('===========================================================');
-  console.log(`  BioPulse Local Edge Gateway`);
+  console.log(`  MyoMate Local Edge Gateway`);
   console.log(`  Local Admin UI:  http://localhost:${EDGE_PORT}/admin.html`);
   console.log(`  Cloud Uplink:    ${CLOUD_WS_URL}`);
   console.log(`  Hardware Port:   ${currentPortPath}`);

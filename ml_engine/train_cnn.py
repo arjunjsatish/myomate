@@ -200,7 +200,7 @@ def train():
     os.makedirs(models_dir, exist_ok=True)
 
     print("===============================================================")
-    print("  BioPulse 1D-CNN Arrhythmia & PVC Model Training Pipeline")
+    print("  MyoMate 1D-CNN Arrhythmia & PVC Model Training Pipeline")
     print(f"  Hardware Device Target Sample Rate: {TARGET_FS} SPS")
     print(f"  Window Size: {WINDOW_LEN} samples (~750 ms)")
     print("===============================================================")

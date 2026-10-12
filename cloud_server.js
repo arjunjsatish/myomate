@@ -291,7 +291,7 @@ function handleStopRecording() {
 app.get('/api/status', (req, res) => {
   res.json({
     status: 'online',
-    server: 'BioPulse Cloud Telemetry & AI Hub',
+    server: 'MyoMate Cloud Telemetry & AI Hub',
     edge_connected: edgeStatus.connected,
     edge_device: edgeStatus.deviceId,
     active_port: edgeStatus.activePort,
@@ -462,7 +462,7 @@ app.post('/api/ai/compare', async (req, res) => {
 // Start Cloud Server
 server.listen(PORT, () => {
   console.log('===========================================================');
-  console.log(`  BioPulse Cloud Telemetry & AI Hub`);
+  console.log(`  MyoMate Cloud Telemetry & AI Hub`);
   console.log(`  Remote Viewer URL: http://localhost:${PORT}`);
   console.log(`  AI Engine URL:     ${AI_SERVICE_URL}`);
   console.log(`  Edge Ingest WS:    ws://localhost:${PORT}`);

@@ -30,7 +30,7 @@ def download_file(url, target_path):
     try:
         req = urllib.request.Request(
             url,
-            headers={'User-Agent': 'Mozilla/5.0 (BioPulse ECG Pipeline)'}
+            headers={'User-Agent': 'Mozilla/5.0 (MyoMate ECG Pipeline)'}
         )
         with urllib.request.urlopen(req, timeout=30) as response, open(target_path, 'wb') as out_file:
             out_file.write(response.read())

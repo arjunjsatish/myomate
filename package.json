@@ -1,7 +1,7 @@
 {
-  "name": "esp32-max30001-websocket-server",
+  "name": "myomate",
   "version": "1.0.0",
-  "description": "Node.js WebSocket Internet Streaming Server & SPA Visualizer for ESP32 MAX30001 ECG",
+  "description": "MyoMate - Edge-to-Cloud Telemetry & AI Arrhythmia Diagnostic System for MAX30001 ECG",
   "main": "server.js",
   "scripts": {
     "start": "node cloud_server.js",
