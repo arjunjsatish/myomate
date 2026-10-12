@@ -1,0 +1,18 @@
+{
+  "name": "esp32-max30001-websocket-server",
+  "version": "1.0.0",
+  "description": "Node.js WebSocket Internet Streaming Server & SPA Visualizer for ESP32 MAX30001 ECG",
+  "main": "server.js",
+  "scripts": {
+    "start": "node cloud_server.js",
+    "cloud": "node cloud_server.js",
+    "edge": "node edge_server.js",
+    "both": "node cloud_server.js & node edge_server.js"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "ws": "^8.17.0",
+    "serialport": "^12.0.0",
+    "@serialport/parser-readline": "^12.0.0"
+  }
+}

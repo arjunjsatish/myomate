@@ -1,0 +1,265 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>BioPulse - Remote Live ECG & Heart Rate Monitor</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="app-container">
+        <!-- Clean Remote Viewer Header -->
+        <header class="app-header">
+            <div class="brand">
+                <div class="heart-pulse-icon" id="heartPulse">❤️</div>
+                <div>
+                    <h1>BioPulse <span class="badge-tag">REMOTE VIEWER</span></h1>
+                    <p class="subtitle">ESP32 MAX30001 Live Internet ECG Monitor</p>
+                </div>
+            </div>
+
+            <div class="header-status" style="display: flex; align-items: center; gap: 12px;">
+                <!-- Live Recording Control Bar -->
+                <div class="recording-bar" style="display: flex; align-items: center; gap: 8px;">
+                    <input type="text" id="inputSessionTitle" class="input-ctrl" placeholder="Session Title..." style="padding: 6px 12px; font-size: 0.85rem; border-radius: 8px; background: rgba(15,23,42,0.8); border: 1px solid var(--card-border); color: #fff; width: 160px;">
+                    <button class="btn btn-danger" id="btnRecordToggle" style="display: flex; align-items: center; gap: 6px;">
+                        <span class="rec-icon">🔴</span> <span id="recBtnText">Record & Stream</span>
+                    </button>
+                    <div id="recBadge" class="rec-badge" style="display: none; align-items: center; gap: 6px; background: rgba(239, 68, 68, 0.15); border: 1px solid #ef4444; color: #fca5a5; padding: 4px 10px; border-radius: 20px; font-size: 0.8rem; font-family: 'JetBrains Mono', monospace;">
+                        <span class="pulse-dot-red"></span>
+                        <span id="recTimer">00:00</span>
+                    </div>
+                </div>
+
+                <button class="btn btn-secondary" id="btnHistory" style="display: flex; align-items: center; gap: 6px;">
+                    📁 History & AI Analysis
+                </button>
+
+                <div class="status-indicator" id="edgeStatusBadge" title="Local Edge Gateway Status">
+                    <span class="dot" style="background: #f59e0b;"></span>
+                    <span class="label" id="edgeStatusLabel">EDGE: WAITING</span>
+                </div>
+
+                <div class="status-indicator" id="wsStatus">
+                    <span class="dot"></span>
+                    <span class="label">Connecting...</span>
+                </div>
+            </div>
+        </header>
+
+        <!-- Main Dashboard Grid -->
+        <main class="dashboard-grid">
+            <!-- Metric Card 1: Heart Rate -->
+            <div class="card metric-card hr-card">
+                <div class="card-header">
+                    <span class="card-title">HEART RATE</span>
+                    <span class="card-icon">🫀</span>
+                </div>
+                <div class="card-body">
+                    <div class="big-metric">
+                        <span class="value" id="valHR">--</span>
+                        <span class="unit">BPM</span>
+                    </div>
+                    <div class="sub-stats">
+                        <div class="stat"><span class="stat-lbl">MIN</span> <span class="stat-val" id="minHR">--</span></div>
+                        <div class="stat"><span class="stat-lbl">AVG</span> <span class="stat-val" id="avgHR">--</span></div>
+                        <div class="stat"><span class="stat-lbl">MAX</span> <span class="stat-val" id="maxHR">--</span></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Metric Card 2: ECG Amplitude -->
+            <div class="card metric-card ecg-card">
+                <div class="card-header">
+                    <span class="card-title">ECG AMPLITUDE</span>
+                    <span class="card-icon">⚡</span>
+                </div>
+                <div class="card-body">
+                    <div class="big-metric">
+                        <span class="value" id="valECG">0.0</span>
+                        <span class="unit">µV</span>
+                    </div>
+                    <div class="sub-stats">
+                        <div class="stat"><span class="stat-lbl">PEAK</span> <span class="stat-val" id="peakECG">0.0 µV</span></div>
+                        <div class="stat"><span class="stat-lbl">GAIN</span> <span class="stat-val" id="gainDisplay">1.0x</span></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Metric Card 3: R-R Interval -->
+            <div class="card metric-card rr-card">
+                <div class="card-header">
+                    <span class="card-title">R-R INTERVAL</span>
+                    <span class="card-icon">⏱️</span>
+                </div>
+                <div class="card-body">
+                    <div class="big-metric">
+                        <span class="value" id="valRR">--</span>
+                        <span class="unit">ms</span>
+                    </div>
+                    <div class="sub-stats">
+                        <div class="stat"><span class="stat-lbl">HRV</span> <span class="stat-val" id="valHRV">NORMAL</span></div>
+                        <div class="stat"><span class="stat-lbl">SOURCE</span> <span class="stat-val" id="sourceText">Connecting...</span></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Metric Card 4: Lead Contact Status -->
+            <div class="card metric-card lead-card">
+                <div class="card-header">
+                    <span class="card-title">LEAD CONTACT</span>
+                    <span class="card-icon">🩺</span>
+                </div>
+                <div class="card-body">
+                    <div class="big-metric">
+                        <span class="value lead-ok" id="valLead">CONNECTED</span>
+                    </div>
+                    <div class="sub-stats">
+                        <div class="stat"><span class="stat-lbl">STATUS</span> <span class="stat-val" id="leadDetail">Medical 60Hz Filter OK</span></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Oscilloscope Canvas Container -->
+            <div class="card oscilloscope-card">
+                <div class="oscilloscope-header">
+                    <div class="scope-title">
+                        <span class="pulse-dot"></span>
+                        <h3>Real-Time Single-Lead ECG Oscilloscope</h3>
+                        <span class="sample-rate-tag">128 SPS / Live Remote Stream</span>
+                    </div>
+
+                    <!-- Toolbar Controls -->
+                    <div class="scope-controls">
+                        <button class="btn btn-secondary" id="btnTogglePVC" style="background: rgba(245, 158, 11, 0.15); color: #f59e0b; border-color: #f59e0b;">⚡ PVC Arrhythmia: ON</button>
+                        <button class="btn btn-secondary" id="btnPause">⏸️ Pause</button>
+                        <div class="control-group">
+                            <label for="selectGain">Gain:</label>
+                            <select id="selectGain" class="select-ctrl">
+                                <option value="0.5">0.5x</option>
+                                <option value="1.0" selected>1.0x</option>
+                                <option value="2.0">2.0x</option>
+                                <option value="4.0">4.0x</option>
+                            </select>
+                        </div>
+                        <div class="control-group">
+                            <label for="selectSpeed">Paper Speed:</label>
+                            <select id="selectSpeed" class="select-ctrl">
+                                <option value="1.0">25 mm/s (Compact)</option>
+                                <option value="2.0" selected>50 mm/s (Standard)</option>
+                                <option value="4.0">100 mm/s (Zoomed)</option>
+                            </select>
+                        </div>
+                        <button class="btn btn-danger" id="btnClear">🧹 Clear</button>
+                    </div>
+                </div>
+
+                <div class="canvas-wrapper">
+                    <canvas id="ecgCanvas"></canvas>
+                </div>
+            </div>
+        </main>
+
+        <!-- Session History, AI Anomaly Diagnostic & Dual ECG Comparison Modal Drawer -->
+        <div id="historyModal" class="modal-backdrop" style="display: none;">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h3>📁 Saved ECG Session Recordings & AI Diagnostic Engine</h3>
+                    <button class="btn-close" id="btnCloseHistory">✖</button>
+                </div>
+                
+                <div class="modal-body">
+                    <div class="history-actions" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+                        <span style="font-size: 0.85rem; color: var(--text-secondary);">Select 2 sessions for comparison or click 🤖 AI Analysis</span>
+                        <button class="btn btn-primary" id="btnCompareSelected" disabled>📊 Compare 2 Selected Sessions</button>
+                    </div>
+
+                    <div class="table-wrapper" style="max-height: 220px; overflow-y: auto; margin-bottom: 20px; border: 1px solid var(--card-border); border-radius: 8px;">
+                        <table class="session-table" style="width: 100%; border-collapse: collapse; font-size: 0.85rem;">
+                            <thead>
+                                <tr style="background: rgba(30, 41, 59, 0.9); color: var(--text-secondary); text-align: left;">
+                                    <th style="padding: 10px;">Compare</th>
+                                    <th style="padding: 10px;">Date & Time</th>
+                                    <th style="padding: 10px;">Title</th>
+                                    <th style="padding: 10px;">Duration</th>
+                                    <th style="padding: 10px;">Avg HR</th>
+                                    <th style="padding: 10px;">Samples</th>
+                                    <th style="padding: 10px;">Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody id="sessionTableBody">
+                                <tr><td colspan="7" style="padding: 20px; text-align: center; color: var(--text-secondary);">Loading saved sessions...</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <!-- AI Diagnostic Output Card -->
+                    <div id="aiCard" style="display: none; background: rgba(15, 23, 42, 0.9); border: 1px solid #10b981; border-radius: 12px; padding: 16px; margin-bottom: 20px;">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+                            <h4 style="color: #10b981; font-size: 1.05rem; display: flex; align-items: center; gap: 8px;">
+                                🤖 AI Clinical Diagnostic Report
+                            </h4>
+                            <span id="aiConfidenceBadge" style="background: rgba(16,185,129,0.15); color: #10b981; border: 1px solid #10b981; padding: 2px 10px; border-radius: 999px; font-size: 0.8rem; font-weight: 700;">96% Confidence</span>
+                        </div>
+
+                        <div style="display: grid; grid-template-columns: 2fr 1fr; gap: 16px; margin-bottom: 12px;">
+                            <div>
+                                <div style="font-size: 0.8rem; color: var(--text-secondary);">PRIMARY AI DIAGNOSIS</div>
+                                <div id="aiDiagnosisText" style="font-size: 1.2rem; font-weight: 800; color: #ffffff; margin-top: 2px;">Normal Sinus Rhythm</div>
+                            </div>
+                            <div>
+                                <div style="font-size: 0.8rem; color: var(--text-secondary);">HRV METRICS (SDNN / RMSSD)</div>
+                                <div id="aiHrvText" style="font-size: 0.95rem; font-weight: 700; color: #cbd5e1; font-family: var(--font-mono); margin-top: 2px;">-- ms / -- ms</div>
+                            </div>
+                        </div>
+
+                        <div id="aiAnomaliesList" style="font-size: 0.82rem; color: #94a3b8; border-top: 1px solid var(--card-border); padding-top: 10px;">
+                            No morphological anomalies detected.
+                        </div>
+                    </div>
+
+                    <!-- Dual Waveform Comparison Container -->
+                    <div id="comparisonContainer" style="display: none; border-top: 1px solid var(--card-border); padding-top: 16px;">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+                            <h4 style="color: #10b981; font-size: 1rem;">📊 Dual ECG Waveform Comparison Analysis</h4>
+                            <button class="btn btn-secondary" id="btnCloseCompare" style="padding: 4px 10px; font-size: 0.8rem;">Close Comparison View</button>
+                        </div>
+
+                        <div class="compare-metrics-banner" style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 16px;">
+                            <div class="comp-box" style="background: rgba(16,185,129,0.08); border: 1px solid #10b981; padding: 12px; border-radius: 8px;">
+                                <h5 id="compTitleA" style="color: #10b981; font-size: 0.9rem;">Session A</h5>
+                                <div style="font-size: 0.8rem; color: var(--text-secondary);" id="compMetaA">Loading...</div>
+                            </div>
+                            <div class="comp-box" style="background: rgba(59,130,246,0.08); border: 1px solid #3b82f6; padding: 12px; border-radius: 8px;">
+                                <h5 id="compTitleB" style="color: #3b82f6; font-size: 0.9rem;">Session B</h5>
+                                <div style="font-size: 0.8rem; color: var(--text-secondary);" id="compMetaB">Loading...</div>
+                            </div>
+                        </div>
+
+                        <div class="dual-canvas-wrapper" style="display: grid; grid-template-rows: 1fr 1fr; gap: 12px;">
+                            <div style="position: relative;">
+                                <span style="position: absolute; top: 8px; left: 12px; font-size: 0.75rem; color: #10b981; background: rgba(0,0,0,0.6); padding: 2px 6px; border-radius: 4px;">Session A Waveform</span>
+                                <canvas id="canvasCompareA" style="width: 100%; height: 160px; background: #090d16; border-radius: 8px; border: 1px solid var(--card-border);"></canvas>
+                            </div>
+                            <div style="position: relative;">
+                                <span style="position: absolute; top: 8px; left: 12px; font-size: 0.75rem; color: #3b82f6; background: rgba(0,0,0,0.6); padding: 2px 6px; border-radius: 4px;">Session B Waveform</span>
+                                <canvas id="canvasCompareB" style="width: 100%; height: 160px; background: #090d16; border-radius: 8px; border: 1px solid var(--card-border);"></canvas>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Footer -->
+        <footer class="app-footer">
+            <p>BioPulse Remote Viewer | Streamed via ESP32 MAX30001 Internet WebSockets</p>
+        </footer>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>

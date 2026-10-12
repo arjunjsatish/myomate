@@ -1,0 +1,286 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>BioPulse - Local Hardware Admin Panel</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="app-container">
+        <!-- Admin Header -->
+        <header class="app-header">
+            <div class="brand">
+                <div class="heart-pulse-icon" id="heartPulse">⚙️</div>
+                <div>
+                    <h1>BioPulse <span class="badge-tag" style="background: rgba(245, 158, 11, 0.15); color: #f59e0b; border-color: #f59e0b;">LOCAL HARDWARE ADMIN</span></h1>
+                    <p class="subtitle">Gateway & Bluetooth / Serial Pairing Controller</p>
+                </div>
+            </div>
+
+            <div class="header-status" style="display: flex; align-items: center; gap: 12px;">
+                <!-- Live Recording Control Bar -->
+                <div class="recording-bar" style="display: flex; align-items: center; gap: 8px;">
+                    <input type="text" id="inputSessionTitle" class="input-ctrl" placeholder="Session Title..." style="padding: 6px 12px; font-size: 0.85rem; border-radius: 8px; background: rgba(15,23,42,0.8); border: 1px solid var(--card-border); color: #fff; width: 160px;">
+                    <button class="btn btn-danger" id="btnRecordToggle" style="display: flex; align-items: center; gap: 6px;">
+                        <span class="rec-icon">🔴</span> <span id="recBtnText">Record & Stream</span>
+                    </button>
+                    <div id="recBadge" class="rec-badge" style="display: none; align-items: center; gap: 6px; background: rgba(239, 68, 68, 0.15); border: 1px solid #ef4444; color: #fca5a5; padding: 4px 10px; border-radius: 20px; font-size: 0.8rem; font-family: 'JetBrains Mono', monospace;">
+                        <span class="pulse-dot-red"></span>
+                        <span id="recTimer">00:00</span>
+                    </div>
+                </div>
+
+                <button class="btn btn-secondary" id="btnHistory" style="display: flex; align-items: center; gap: 6px;">
+                    📁 History & Compare
+                </button>
+
+                <a href="/" class="btn btn-secondary">👁️ Remote Viewer</a>
+                <div class="status-indicator" id="wsStatus">
+                    <span class="dot"></span>
+                    <span class="label">Connecting...</span>
+                </div>
+            </div>
+        </header>
+
+        <!-- Admin Control Panel -->
+        <div class="card admin-panel-card">
+            <h3 style="margin-bottom: 16px; font-size: 1.1rem; color: #ffffff;">🔌 Local Gateway Connection & Pairing</h3>
+            
+            <div class="admin-controls-grid" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px;">
+                <!-- Serial & Bluetooth SPP Port Selector -->
+                <div class="admin-box" style="background: #1e293b; padding: 16px; border-radius: 12px; border: 1px solid var(--card-border);">
+                    <h4 style="font-size: 0.9rem; color: var(--text-secondary); margin-bottom: 8px;">1. USB Serial / Bluetooth SPP Port</h4>
+                    <div style="display: flex; gap: 8px; margin-bottom: 8px;">
+                        <select id="selectPort" class="select-ctrl" style="flex: 1; padding: 8px; font-size: 0.85rem;">
+                            <option value="">Scanning ports...</option>
+                        </select>
+                        <button class="btn btn-secondary" id="btnRefreshPorts">🔄 Scan</button>
+                    </div>
+                    <button class="btn btn-secondary" id="btnConnectPort" style="width: 100%; background: #3b82f6; color: #fff;">Connect Selected Port</button>
+                    <p style="font-size: 0.75rem; color: var(--text-secondary); margin-top: 8px;">
+                        Pairs with Bluetooth Serial (<code>/dev/cu.ESP32-ECG-MAX30001-SPP</code>) or USB Serial (<code>/dev/cu.usbserial*</code>).
+                    </p>
+                </div>
+
+                <!-- Web-Bluetooth BLE Pairing -->
+                <div class="admin-box" style="background: #1e293b; padding: 16px; border-radius: 12px; border: 1px solid var(--card-border);">
+                    <h4 style="font-size: 0.9rem; color: var(--text-secondary); margin-bottom: 8px;">2. Direct Web-Bluetooth (BLE)</h4>
+                    <button class="btn btn-ble" id="btnBLE" style="width: 100%; justify-content: center; padding: 10px; margin-bottom: 8px; font-size: 0.9rem;">
+                        📶 Pair Local Browser via Bluetooth LE
+                    </button>
+                    <p style="font-size: 0.75rem; color: var(--text-secondary);">
+                        Direct wireless BLE GATT pairing from this host computer. Streams telemetry to remote viewers automatically.
+                    </p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Dashboard Grid (Local Preview) -->
+        <main class="dashboard-grid">
+            <div class="card metric-card hr-card">
+                <div class="card-header"><span class="card-title">HEART RATE</span><span class="card-icon">🫀</span></div>
+                <div class="card-body">
+                    <div class="big-metric"><span class="value" id="valHR">--</span><span class="unit">BPM</span></div>
+                    <div class="sub-stats">
+                        <div class="stat"><span class="stat-lbl">MIN</span> <span class="stat-val" id="minHR">--</span></div>
+                        <div class="stat"><span class="stat-lbl">AVG</span> <span class="stat-val" id="avgHR">--</span></div>
+                        <div class="stat"><span class="stat-lbl">MAX</span> <span class="stat-val" id="maxHR">--</span></div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card metric-card ecg-card">
+                <div class="card-header"><span class="card-title">ECG AMPLITUDE</span><span class="card-icon">⚡</span></div>
+                <div class="card-body">
+                    <div class="big-metric"><span class="value" id="valECG">0.0</span><span class="unit">µV</span></div>
+                    <div class="sub-stats">
+                        <div class="stat"><span class="stat-lbl">PEAK</span> <span class="stat-val" id="peakECG">0.0 µV</span></div>
+                        <div class="stat"><span class="stat-lbl">GAIN</span> <span class="stat-val" id="gainDisplay">1.0x</span></div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card metric-card rr-card">
+                <div class="card-header"><span class="card-title">R-R INTERVAL</span><span class="card-icon">⏱️</span></div>
+                <div class="card-body">
+                    <div class="big-metric"><span class="value" id="valRR">--</span><span class="unit">ms</span></div>
+                    <div class="sub-stats">
+                        <div class="stat"><span class="stat-lbl">HRV</span> <span class="stat-val" id="valHRV">NORMAL</span></div>
+                        <div class="stat"><span class="stat-lbl">SOURCE</span> <span class="stat-val" id="sourceText">Connecting...</span></div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card metric-card lead-card">
+                <div class="card-header"><span class="card-title">LEAD CONTACT</span><span class="card-icon">🩺</span></div>
+                <div class="card-body">
+                    <div class="big-metric"><span class="value lead-ok" id="valLead">CONNECTED</span></div>
+                    <div class="sub-stats">
+                        <div class="stat"><span class="stat-lbl">STATUS</span> <span class="stat-val" id="leadDetail">Medical 60Hz Filter OK</span></div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card oscilloscope-card">
+                <div class="oscilloscope-header">
+                    <div class="scope-title">
+                        <span class="pulse-dot"></span>
+                        <h3>Local Gateway Oscilloscope Preview</h3>
+                    </div>
+                    <div class="scope-controls">
+                        <button class="btn btn-secondary" id="btnPause">⏸️ Pause</button>
+                        <div class="control-group">
+                            <label for="selectGain">Gain:</label>
+                            <select id="selectGain" class="select-ctrl">
+                                <option value="0.5">0.5x</option>
+                                <option value="1.0" selected>1.0x</option>
+                                <option value="2.0">2.0x</option>
+                                <option value="4.0">4.0x</option>
+                            </select>
+                        </div>
+                        <div class="control-group">
+                            <label for="selectSpeed">Paper Speed:</label>
+                            <select id="selectSpeed" class="select-ctrl">
+                                <option value="1.0">25 mm/s (Compact)</option>
+                                <option value="2.0" selected>50 mm/s (Standard)</option>
+                                <option value="4.0">100 mm/s (Zoomed)</option>
+                            </select>
+                        </div>
+                        <button class="btn btn-danger" id="btnClear">🧹 Clear</button>
+                    </div>
+                </div>
+
+                <div class="canvas-wrapper">
+                    <canvas id="ecgCanvas"></canvas>
+                </div>
+            </div>
+        </main>
+
+        <!-- Session History & Dual ECG Comparison Modal Drawer -->
+        <div id="historyModal" class="modal-backdrop" style="display: none;">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h3>📁 Saved ECG Session Recordings & Comparison</h3>
+                    <button class="btn-close" id="btnCloseHistory">✖</button>
+                </div>
+                
+                <div class="modal-body">
+                    <div class="history-actions" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+                        <span style="font-size: 0.85rem; color: var(--text-secondary);">Select 2 sessions to compare waveforms side-by-side</span>
+                        <button class="btn btn-primary" id="btnCompareSelected" disabled>📊 Compare 2 Selected Sessions</button>
+                    </div>
+
+                    <div class="table-wrapper" style="max-height: 250px; overflow-y: auto; margin-bottom: 20px; border: 1px solid var(--card-border); border-radius: 8px;">
+                        <table class="session-table" style="width: 100%; border-collapse: collapse; font-size: 0.85rem;">
+                            <thead>
+                                <tr style="background: rgba(30, 41, 59, 0.9); color: var(--text-secondary); text-align: left;">
+                                    <th style="padding: 10px;">Compare</th>
+                                    <th style="padding: 10px;">Date & Time</th>
+                                    <th style="padding: 10px;">Title</th>
+                                    <th style="padding: 10px;">Duration</th>
+                                    <th style="padding: 10px;">Avg HR</th>
+                                    <th style="padding: 10px;">Samples</th>
+                                    <th style="padding: 10px;">Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody id="sessionTableBody">
+                                <tr><td colspan="7" style="padding: 20px; text-align: center; color: var(--text-secondary);">Loading saved sessions...</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <div id="comparisonContainer" style="display: none; border-top: 1px solid var(--card-border); padding-top: 16px;">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+                            <h4 style="color: #10b981; font-size: 1rem;">📊 Dual ECG Waveform Comparison Analysis</h4>
+                            <button class="btn btn-secondary" id="btnCloseCompare" style="padding: 4px 10px; font-size: 0.8rem;">Close Comparison View</button>
+                        </div>
+
+                        <div class="compare-metrics-banner" style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 16px;">
+                            <div class="comp-box" style="background: rgba(16,185,129,0.08); border: 1px solid #10b981; padding: 12px; border-radius: 8px;">
+                                <h5 id="compTitleA" style="color: #10b981; font-size: 0.9rem;">Session A</h5>
+                                <div style="font-size: 0.8rem; color: var(--text-secondary);" id="compMetaA">Loading...</div>
+                            </div>
+                            <div class="comp-box" style="background: rgba(59,130,246,0.08); border: 1px solid #3b82f6; padding: 12px; border-radius: 8px;">
+                                <h5 id="compTitleB" style="color: #3b82f6; font-size: 0.9rem;">Session B</h5>
+                                <div style="font-size: 0.8rem; color: var(--text-secondary);" id="compMetaB">Loading...</div>
+                            </div>
+                        </div>
+
+                        <div class="dual-canvas-wrapper" style="display: grid; grid-template-rows: 1fr 1fr; gap: 12px;">
+                            <div style="position: relative;">
+                                <span style="position: absolute; top: 8px; left: 12px; font-size: 0.75rem; color: #10b981; background: rgba(0,0,0,0.6); padding: 2px 6px; border-radius: 4px;">Session A Waveform</span>
+                                <canvas id="canvasCompareA" style="width: 100%; height: 160px; background: #090d16; border-radius: 8px; border: 1px solid var(--card-border);"></canvas>
+                            </div>
+                            <div style="position: relative;">
+                                <span style="position: absolute; top: 8px; left: 12px; font-size: 0.75rem; color: #3b82f6; background: rgba(0,0,0,0.6); padding: 2px 6px; border-radius: 4px;">Session B Waveform</span>
+                                <canvas id="canvasCompareB" style="width: 100%; height: 160px; background: #090d16; border-radius: 8px; border: 1px solid var(--card-border);"></canvas>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="app.js"></script>
+    <script>
+        // Admin Port Scanner & Controller Script
+        document.addEventListener('DOMContentLoaded', () => {
+            const selectPort = document.getElementById('selectPort');
+            const btnRefreshPorts = document.getElementById('btnRefreshPorts');
+            const btnConnectPort = document.getElementById('btnConnectPort');
+
+            async function loadPorts() {
+                try {
+                    const res = await fetch('/api/ports');
+                    const data = await res.json();
+                    selectPort.innerHTML = '';
+
+                    if (data.ports && data.ports.length > 0) {
+                        data.ports.forEach(p => {
+                            const opt = document.createElement('option');
+                            opt.value = p.path;
+                            opt.textContent = `${p.path} ${p.manufacturer ? '(' + p.manufacturer + ')' : ''}`;
+                            if (p.path === data.activePort) opt.selected = true;
+                            selectPort.appendChild(opt);
+                        });
+                    } else {
+                        selectPort.innerHTML = '<option value="">No ports found</option>';
+                    }
+                } catch(e) {
+                    console.error('Error loading ports:', e);
+                }
+            }
+
+            btnRefreshPorts.addEventListener('click', loadPorts);
+            loadPorts();
+
+            btnConnectPort.addEventListener('click', async () => {
+                const targetPath = selectPort.value;
+                if (!targetPath) return;
+
+                btnConnectPort.textContent = 'Connecting...';
+                try {
+                    const res = await fetch('/api/connect-port', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ path: targetPath })
+                    });
+                    const result = await res.json();
+                    if (result.success) {
+                        alert(`Connected gateway to port: ${targetPath}`);
+                    }
+                } catch(e) {
+                    alert(`Error connecting port: ${e.message}`);
+                } finally {
+                    btnConnectPort.textContent = 'Connect Selected Port';
+                }
+            });
+        });
+    </script>
+</body>
+</html>
