@@ -1,0 +1,13 @@
+.git
+.github
+.venv
+venv
+node_modules
+npm-debug.log*
+.pio
+.vscode
+ml_engine/data
+ESP Hardware 2 /
+.DS_Store
+*.log
+scratch/

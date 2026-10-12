@@ -1,0 +1,21 @@
+version: '3.8'
+
+services:
+  myomate-cloudhub:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: myomate-cloudhub:latest
+    container_name: myomate-cloudhub
+    ports:
+      - "3000:8080"
+    environment:
+      - PORT=8080
+      - AI_SERVICE_URL=http://127.0.0.1:5005
+    volumes:
+      - myomate_data:/app/data
+    restart: unless-stopped
+
+volumes:
+  myomate_data:
+    driver: local
