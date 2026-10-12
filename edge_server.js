@@ -1,16 +1,18 @@
 const http = require('http');
 const path = require('path');
 const express = require('express');
-const WebSocket = require('ws');
+const { WebSocketServer, WebSocket } = require('ws');
 const { SerialPort } = require('serialport');
 const { ReadlineParser } = require('@serialport/parser-readline');
 
 const EDGE_PORT = process.env.EDGE_PORT || 3001;
 const CLOUD_WS_URL = process.env.CLOUD_WS_URL || 'ws://localhost:3000';
+const CLOUD_HTTP_URL = process.env.CLOUD_HTTP_URL || CLOUD_WS_URL.replace('wss://', 'https://').replace('ws://', 'http://');
 const DEVICE_ID = process.env.DEVICE_ID || 'esp32-max30001-edge';
 
 const app = express();
 const server = http.createServer(app);
+const wss = new WebSocketServer({ server });
 
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
@@ -35,6 +37,53 @@ let latestTelemetry = {
 };
 
 // =============================================================================
+// Local WebSocket Server (Serves admin.html on port 3001)
+// =============================================================================
+function broadcastLocal(data) {
+  const payload = JSON.stringify(data);
+  wss.clients.forEach((client) => {
+    if (client.readyState === WebSocket.OPEN) {
+      client.send(payload);
+    }
+  });
+}
+
+wss.on('connection', (ws) => {
+  ws.send(JSON.stringify(latestTelemetry));
+
+  ws.on('message', (msg) => {
+    try {
+      const data = JSON.parse(msg);
+      if (data.type === 'ble_telemetry') {
+        handleTelemetryPacket({
+          ecg: data.ecg || 0.0,
+          bioz: 0.0,
+          hr: data.hr || 0,
+          rr: data.rr || 0,
+          lead_off: !!data.lead_off,
+          timestamp: Date.now(),
+          source: 'Web-BLE Wireless'
+        });
+      } else if (data.type === 'toggle_pvc_mode') {
+        synthArrhythmiaMode = !synthArrhythmiaMode;
+        latestTelemetry.pvc_mode = synthArrhythmiaMode;
+        broadcastLocal(latestTelemetry);
+        if (cloudWs && cloudWs.readyState === WebSocket.OPEN) {
+          cloudWs.send(JSON.stringify({ type: 'toggle_pvc_mode' }));
+        }
+      }
+    } catch (e) {}
+  });
+});
+
+// Central dispatcher for both local clients and cloud uplink
+function handleTelemetryPacket(packet) {
+  latestTelemetry = packet;
+  broadcastLocal(packet);
+  sendTelemetryToCloud(packet);
+}
+
+// =============================================================================
 // Cloud Uplink (WebSocket Client)
 // =============================================================================
 let cloudWs = null;
@@ -43,7 +92,7 @@ let reconnectTimer = null;
 
 function connectToCloud() {
   if (cloudWs) {
-    try { cloudWs.terminate(); } catch(e) {}
+    try { cloudWs.terminate(); } catch (e) {}
   }
 
   console.log(`[Edge Uplink] Connecting to Cloud Hub at ${CLOUD_WS_URL}...`);
@@ -72,6 +121,8 @@ function connectToCloud() {
       const cmd = JSON.parse(msg);
       if (cmd.type === 'toggle_pvc_mode') {
         synthArrhythmiaMode = !synthArrhythmiaMode;
+        latestTelemetry.pvc_mode = synthArrhythmiaMode;
+        broadcastLocal(latestTelemetry);
         console.log(`[Edge] Cloud commanded PVC mode toggle: ${synthArrhythmiaMode ? 'ON' : 'OFF'}`);
       } else if (cmd.type === 'start_recording') {
         console.log(`[Edge] Cloud recording started: ${cmd.title}`);
@@ -152,7 +203,7 @@ async function findBestPort() {
 
 async function initSerialOrBluetoothPort(targetPath) {
   if (activePort && activePort.isOpen) {
-    try { activePort.close(); } catch(e) {}
+    try { activePort.close(); } catch (e) {}
   }
 
   let portPath = targetPath || await findBestPort();
@@ -208,17 +259,16 @@ async function initSerialOrBluetoothPort(targetPath) {
         }
       }
 
-      latestTelemetry = {
+      handleTelemetryPacket({
         ecg,
         bioz: 0.0,
         hr,
         rr,
         lead_off,
         timestamp: Date.now(),
-        source: portPath.includes('Bluetooth') || portPath.includes('ESP32') ? 'Bluetooth SPP' : 'USB Serial'
-      };
-
-      sendTelemetryToCloud(latestTelemetry);
+        source: portPath.includes('Bluetooth') || portPath.includes('ESP32') ? 'Bluetooth SPP' : 'USB Serial',
+        pvc_mode: synthArrhythmiaMode
+      });
     }
   });
 
@@ -266,7 +316,7 @@ setInterval(() => {
 
     if (synthPhase === 0) beatCounter++;
 
-    latestTelemetry = {
+    handleTelemetryPacket({
       ecg: parseFloat(ecg.toFixed(2)),
       bioz: 0.0,
       hr: isPVCBeat ? 104 : 75,
@@ -274,10 +324,9 @@ setInterval(() => {
       lead_off: false,
       timestamp: Date.now(),
       synthetic: true,
-      source: synthArrhythmiaMode ? 'Edge Synthetic PVC' : 'Edge Synthetic Normal'
-    };
-
-    sendTelemetryToCloud(latestTelemetry);
+      source: synthArrhythmiaMode ? 'Edge Synthetic PVC' : 'Edge Synthetic Normal',
+      pvc_mode: synthArrhythmiaMode
+    });
   }
 }, 8);
 
@@ -319,11 +368,44 @@ app.get('/api/edge/status', (req, res) => {
   });
 });
 
+// Proxy sessions, recordings, and AI requests from local admin panel to Cloud Hub
+app.use(['/api/recordings', '/api/record', '/api/sessions', '/api/ai'], async (req, res) => {
+  try {
+    const targetUrl = `${CLOUD_HTTP_URL}${req.originalUrl}`;
+    const headers = { ...req.headers };
+    delete headers.host;
+    delete headers.connection;
+
+    const fetchOptions = {
+      method: req.method,
+      headers
+    };
+
+    if (req.method !== 'GET' && req.method !== 'HEAD' && req.body && Object.keys(req.body).length > 0) {
+      headers['content-type'] = 'application/json';
+      fetchOptions.body = JSON.stringify(req.body);
+    }
+
+    const cloudRes = await fetch(targetUrl, fetchOptions);
+    const contentType = cloudRes.headers.get('content-type') || '';
+    if (contentType.includes('application/json')) {
+      const json = await cloudRes.json();
+      res.status(cloudRes.status).json(json);
+    } else {
+      const text = await cloudRes.text();
+      res.status(cloudRes.status).send(text);
+    }
+  } catch (err) {
+    res.status(502).json({ error: 'Cloud Hub unreachable from Edge Gateway', details: err.message });
+  }
+});
+
 // Start Edge Server
 server.listen(EDGE_PORT, () => {
   console.log('===========================================================');
   console.log(`  MyoMate Local Edge Gateway`);
   console.log(`  Local Admin UI:  http://localhost:${EDGE_PORT}/admin.html`);
+  console.log(`  Local WS Server: ws://localhost:${EDGE_PORT}`);
   console.log(`  Cloud Uplink:    ${CLOUD_WS_URL}`);
   console.log(`  Hardware Port:   ${currentPortPath}`);
   console.log('===========================================================');
