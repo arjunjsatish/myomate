@@ -4,6 +4,10 @@ const express = require('express');
 const { WebSocketServer, WebSocket } = require('ws');
 const { SerialPort } = require('serialport');
 const { ReadlineParser } = require('@serialport/parser-readline');
+const { EcgCleaner } = require('./ecg_filter');
+
+// Measured hardware rate is ~497 SPS (see [Serial Stats]); override with ECG_FS if needed
+const ecgCleaner = new EcgCleaner(parseFloat(process.env.ECG_FS) || 497);
 
 const EDGE_PORT = process.env.EDGE_PORT || 3001;
 const CLOUD_WS_URL = process.env.CLOUD_WS_URL || 'ws://localhost:3000';
@@ -15,6 +19,12 @@ const server = http.createServer(app);
 const wss = new WebSocketServer({ server });
 
 app.use(express.json());
+
+// Port 3001 is the Local Hardware Admin Viewer
+app.get('/', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'admin.html'));
+});
+
 app.use(express.static(path.join(__dirname, 'public')));
 
 // Global state
@@ -24,6 +34,8 @@ let activeParser = null;
 let serialConnected = false;
 let lastSerialDataTime = 0;
 let synthArrhythmiaMode = true;
+let isCloudRecording = false;
+let recordingStartTime = 0;
 
 let latestTelemetry = {
   ecg: 0.0,
@@ -78,6 +90,12 @@ wss.on('connection', (ws) => {
 
 // Central dispatcher for both local clients and cloud uplink
 function handleTelemetryPacket(packet) {
+  packet.is_recording = isCloudRecording;
+  if (isCloudRecording && recordingStartTime > 0) {
+    packet.recording_duration_sec = Math.floor((Date.now() - recordingStartTime) / 1000);
+  } else {
+    packet.recording_duration_sec = 0;
+  }
   latestTelemetry = packet;
   broadcastLocal(packet);
   sendTelemetryToCloud(packet);
@@ -125,8 +143,18 @@ function connectToCloud() {
         broadcastLocal(latestTelemetry);
         console.log(`[Edge] Cloud commanded PVC mode toggle: ${synthArrhythmiaMode ? 'ON' : 'OFF'}`);
       } else if (cmd.type === 'start_recording') {
+        isCloudRecording = true;
+        recordingStartTime = Date.now();
+        latestTelemetry.is_recording = true;
+        latestTelemetry.recording_duration_sec = 0;
+        broadcastLocal(latestTelemetry);
         console.log(`[Edge] Cloud recording started: ${cmd.title}`);
       } else if (cmd.type === 'stop_recording') {
+        isCloudRecording = false;
+        recordingStartTime = 0;
+        latestTelemetry.is_recording = false;
+        latestTelemetry.recording_duration_sec = 0;
+        broadcastLocal(latestTelemetry);
         console.log(`[Edge] Cloud recording stopped.`);
       }
     } catch (e) {}
@@ -216,7 +244,7 @@ async function initSerialOrBluetoothPort(targetPath) {
 
   activePort = new SerialPort({
     path: portPath,
-    baudRate: 115200,
+    baudRate: 921600,
     autoOpen: false
   });
 
@@ -232,7 +260,16 @@ async function initSerialOrBluetoothPort(targetPath) {
     console.log(`[Serial/BT] Successfully opened ${portPath} (capturing ECG telemetry...)`);
   });
 
+  let serialLineCount = 0;
+  setInterval(() => {
+    if (serialConnected) {
+      console.log(`[Serial Stats] ECG throughput: ${serialLineCount} lines/sec`);
+      serialLineCount = 0;
+    }
+  }, 1000);
+
   activeParser.on('data', (line) => {
+    serialLineCount++;
     line = line.trim();
     if (line.includes('ECG:')) {
       lastSerialDataTime = Date.now();
@@ -258,6 +295,9 @@ async function initSerialOrBluetoothPort(targetPath) {
           lead_off = part.includes('DISCONNECTED');
         }
       }
+
+      if (!lead_off) ecg = ecgCleaner.process(ecg);
+      else ecgCleaner.reset();
 
       handleTelemetryPacket({
         ecg,

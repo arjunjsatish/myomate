@@ -96,9 +96,10 @@ function processTelemetryUpdate(packet) {
     if (packet.hr && packet.hr >= 30 && packet.hr <= 220) {
       activeSession.hrList.push(packet.hr);
     }
-  }
 
-  broadcastToViewers(latestTelemetry);
+    // Only stream real-time data packets to remote viewers while recording is active
+    broadcastToViewers(latestTelemetry);
+  }
 }
 
 // Periodically check edge gateway liveness
@@ -121,8 +122,11 @@ setInterval(() => {
 wss.on('connection', (ws, req) => {
   // Send current state to newly connected client
   ws.send(JSON.stringify({
-    ...latestTelemetry,
+    ...(isRecording ? latestTelemetry : { ecg: 0.0, bioz: 0.0, hr: 0, rr: 0, lead_off: false, source: 'idle' }),
     type: 'init_state',
+    is_recording: isRecording,
+    session_title: isRecording && activeSession ? activeSession.title : '',
+    recording_duration_sec: isRecording && activeSession ? Math.floor((Date.now() - activeSession.startTime) / 1000) : 0,
     edge_status: edgeStatus
   }));
 
@@ -281,7 +285,17 @@ function handleStopRecording() {
   // Inform edge device
   sendToEdge({ type: 'stop_recording' });
 
-  processTelemetryUpdate(latestTelemetry);
+  // Inform remote viewers that stream is idle (waiting for next recorded session)
+  broadcastToViewers({
+    type: 'recording_status',
+    is_recording: false,
+    session_title: '',
+    recording_duration_sec: 0,
+    edge_connected: edgeStatus.connected,
+    edge_port: edgeStatus.activePort,
+    source: 'idle'
+  });
+
   return { meta: sessionMeta, path: sessionFile };
 }
 
@@ -407,7 +421,12 @@ app.get('/api/recordings/compare/paired', (req, res) => {
   }
   const s1 = JSON.parse(fs.readFileSync(f1, 'utf8'));
   const s2 = JSON.parse(fs.readFileSync(f2, 'utf8'));
-  res.json({ sessionA: s1, sessionB: s2 });
+  res.json({
+    session1: s1,
+    session2: s2,
+    sessionA: s1,
+    sessionB: s2
+  });
 });
 
 // Proxy AI Arrhythmia analysis to Python AI Microservice

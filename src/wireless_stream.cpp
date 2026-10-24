@@ -287,43 +287,50 @@ void WirelessStreamManager::update() {
 }
 
 void WirelessStreamManager::broadcastData(const MAX30001_Data &data) {
-    // 1. WebSockets Stream
-    char jsonBuf[128];
-    snprintf(jsonBuf, sizeof(jsonBuf),
-             "{\"ecg\":%.2f,\"bioz\":%.2f,\"hr\":%u,\"rr\":%u,\"lead_off\":%s}",
-             data.ecg_uV, data.bioz_ohms, data.heart_rate_bpm, data.rtor_ms,
-             data.lead_off ? "true" : "false");
-    _webSocket.broadcastTXT(jsonBuf);
+    // 1. WebSockets Stream (only if clients are connected)
+    if (_webSocket.connectedClients() > 0) {
+        char jsonBuf[128];
+        snprintf(jsonBuf, sizeof(jsonBuf),
+                 "{\"ecg\":%.2f,\"bioz\":%.2f,\"hr\":%u,\"rr\":%u,\"lead_off\":%s}",
+                 data.ecg_uV, data.bioz_ohms, data.heart_rate_bpm, data.rtor_ms,
+                 data.lead_off ? "true" : "false");
+        _webSocket.broadcastTXT(jsonBuf);
+    }
 
     // 2. Bluetooth Serial (SPP) Stream
-    char serialLine[128];
-    snprintf(serialLine, sizeof(serialLine), "ECG: %7.2f uV | HR: %3u BPM | RR: %4u ms | Lead: %s\n",
-             data.ecg_uV, data.heart_rate_bpm, data.rtor_ms,
-             data.lead_off ? "DISCONNECTED" : "CONNECTED");
-
 #if !defined(CONFIG_IDF_TARGET_ESP32C3)
     if (_serialBT.hasClient()) {
+        char serialLine[128];
+        snprintf(serialLine, sizeof(serialLine), "ECG: %7.2f uV | HR: %3u BPM | RR: %4u ms | Lead: %s\n",
+                 data.ecg_uV, data.heart_rate_bpm, data.rtor_ms,
+                 data.lead_off ? "DISCONNECTED" : "CONNECTED");
         _serialBT.print(serialLine);
     }
 #endif
 
-    // 3. Nordic UART BLE Stream (NUS)
-    if (_pNUSTXChar != nullptr) {
-        _pNUSTXChar->setValue((uint8_t*)serialLine, strlen(serialLine));
-        _pNUSTXChar->notify();
-    }
+    // 3. Nordic UART BLE Stream (NUS) & Characteristic Notifications (only if BLE client connected)
+    if (_pBLEServer != nullptr && _pBLEServer->getConnectedCount() > 0) {
+        char serialLine[128];
+        snprintf(serialLine, sizeof(serialLine), "ECG: %7.2f uV | HR: %3u BPM | RR: %4u ms | Lead: %s\n",
+                 data.ecg_uV, data.heart_rate_bpm, data.rtor_ms,
+                 data.lead_off ? "DISCONNECTED" : "CONNECTED");
 
-    // 4. BLE Characteristic Notifications
-    if (_pECGDataChar != nullptr) {
-        float val = data.ecg_uV;
-        _pECGDataChar->setValue((uint8_t*)&val, sizeof(val));
-        _pECGDataChar->notify();
-    }
+        if (_pNUSTXChar != nullptr) {
+            _pNUSTXChar->setValue((uint8_t*)serialLine, strlen(serialLine));
+            _pNUSTXChar->notify();
+        }
 
-    if (data.new_rtor && _pHeartRateChar != nullptr && data.heart_rate_bpm >= 30 && data.heart_rate_bpm <= 220) {
-        uint8_t hrFlags = 0x00;
-        uint8_t hrData[2] = { hrFlags, (uint8_t)data.heart_rate_bpm };
-        _pHeartRateChar->setValue(hrData, 2);
-        _pHeartRateChar->notify();
+        if (_pECGDataChar != nullptr) {
+            float val = data.ecg_uV;
+            _pECGDataChar->setValue((uint8_t*)&val, sizeof(val));
+            _pECGDataChar->notify();
+        }
+
+        if (data.new_rtor && _pHeartRateChar != nullptr && data.heart_rate_bpm >= 30 && data.heart_rate_bpm <= 220) {
+            uint8_t hrFlags = 0x00;
+            uint8_t hrData[2] = { hrFlags, (uint8_t)data.heart_rate_bpm };
+            _pHeartRateChar->setValue(hrData, 2);
+            _pHeartRateChar->notify();
+        }
     }
 }

@@ -49,9 +49,13 @@ def detect_r_peaks(ecg_signal, sampling_rate=128):
 
     sorted_peaks = sorted(list(comb_peaks))
     
-    # Filter out duplicate peaks closer than min_dist
+    # Filter out duplicate peaks closer than min_dist and reject boundary edge artifacts
+    edge_margin = int(0.20 * sampling_rate) # First/last 200ms settling transient
     final_peaks = []
     for p in sorted_peaks:
+        # Ignore peaks in the initial or trailing edge margins
+        if p < edge_margin or p >= len(ecg_signal) - edge_margin:
+            continue
         if not final_peaks or (p - final_peaks[-1]) >= min_dist:
             final_peaks.append(int(p))
 

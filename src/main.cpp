@@ -9,8 +9,9 @@ WirelessStreamManager wireless;
 unsigned long lastSampleMicros = 0;
 
 void setup() {
-    Serial.begin(115200);
-    delay(1000);
+    Serial.setTxBufferSize(4096);
+    Serial.begin(921600);
+    delay(500);
 
     Serial.println("\n=======================================================");
     Serial.println("  Adafruit ESP32 Feather + ProtoCentral MAX30001 Board ");
@@ -35,21 +36,24 @@ void loop() {
     // 1. Maintain Wi-Fi & WebSockets state
     wireless.update();
 
-    // 2. Poll MAX30001 at precise 512 Hz (1953 microseconds per conversion)
-    if (micros() - lastSampleMicros >= 1953) {
-        lastSampleMicros = micros();
+    // 2. Drain MAX30001 Hardware FIFO (poll hardware FIFO, streaming samples as they arrive)
+    MAX30001_Data sensorData;
+    uint8_t samplesProcessed = 0;
+    while (max30001.readSensorData(sensorData) && samplesProcessed < 16) {
+        samplesProcessed++;
 
-        MAX30001_Data sensorData;
-        if (max30001.readSensorData(sensorData)) {
-            // Stream packet over WebSockets, BLE, and Bluetooth SPP
-            wireless.broadcastData(sensorData);
+        // Stream packet over WebSockets, BLE, and Bluetooth SPP
+        wireless.broadcastData(sensorData);
 
-            // Stream debug log & telemetry data over USB Serial
-            Serial.printf("ECG:%.2f|HR:%u|RR:%u|Lead:%s\n",
-                          sensorData.ecg_uV,
-                          sensorData.heart_rate_bpm,
-                          sensorData.rtor_ms,
-                          sensorData.lead_off ? "DISCONNECTED" : "CONNECTED");
-        }
+        // Stream debug log & telemetry data over USB Serial
+        Serial.printf("ECG:%.2f|HR:%u|RR:%u|Lead:%s\n",
+                      sensorData.ecg_uV,
+                      sensorData.heart_rate_bpm,
+                      sensorData.rtor_ms,
+                      sensorData.lead_off ? "DISCONNECTED" : "CONNECTED");
+    }
+
+    if (samplesProcessed == 0) {
+        delayMicroseconds(200);
     }
 }

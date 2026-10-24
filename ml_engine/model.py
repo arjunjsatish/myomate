@@ -218,27 +218,38 @@ def analyze_full_session(session_data, sampling_rate=128):
         }
 
         pvc_prob = pred["pvc_prob"]
-        has_dsp_support = diag.get("is_premature", False) or diag.get("is_wide_qrs", False) or \
-                          diag.get("has_compensatory_pause", False) or diag.get("is_bizarre_morphology", False)
+        qrs_w = diag.get("qrs_width_ms", 80.0)
+        is_wide = diag.get("is_wide_qrs", False) or (qrs_w >= 100.0)
+        is_bizarre = diag.get("is_bizarre_morphology", False)
+        rule_pvc = diag.get("rule_pvc", False)
+        
+        # Clinical ventricular ectopic criteria:
+        # PVCs originate from ventricular myocardium, producing prolonged conduction (>100-120ms)
+        # and abnormal morphology compared to normal sinus beats.
+        # A narrow normal complex (<90ms) cannot be a PVC regardless of baseline shifts.
+        has_dsp_support = (is_wide and (diag.get("is_premature", False) or diag.get("has_compensatory_pause", False))) or \
+                          (is_bizarre and diag.get("is_premature", False)) or \
+                          rule_pvc
 
         is_pvc = False
         detection_source = None
 
-        if pvc_prob >= 0.90:
-            is_pvc = True
-            detection_source = "CNN_HIGH_CONF" if not has_dsp_support else "CNN_PLUS_DSP"
-        elif pvc_prob >= 0.50 and has_dsp_support:
-            is_pvc = True
-            detection_source = "CNN_PLUS_DSP"
-        elif diag.get("rule_pvc", False) and pvc_prob >= 0.35:
+        if rule_pvc and pvc_prob >= 0.30:
             is_pvc = True
             detection_source = "DSP_CONFIRMED"
+        elif pvc_prob >= 0.85 and has_dsp_support and qrs_w >= 90.0:
+            is_pvc = True
+            detection_source = "CNN_PLUS_DSP"
+        elif pvc_prob >= 0.95 and (is_wide or is_bizarre):
+            is_pvc = True
+            detection_source = "CNN_HIGH_CONF"
 
         if is_pvc:
             pvc_count += 1
-            q_start = diag.get("q_start", max(0, r_idx - int(0.08 * sampling_rate)))
-            s_end = diag.get("s_end", min(len(ecg_signal), r_idx + int(0.12 * sampling_rate)))
-            qrs_w = diag.get("qrs_width_ms", 120.0)
+            # Bounding box covers full ectopic complex (Q-onset to S-offset, minimum +/- 100ms)
+            box_half = int(0.12 * sampling_rate) # +/- 120ms around peak
+            q_start = max(0, min(diag.get("q_start", r_idx - box_half), r_idx - int(0.06 * sampling_rate)))
+            s_end = min(len(ecg_signal), max(diag.get("s_end", r_idx + box_half), r_idx + int(0.08 * sampling_rate)))
             confirmed_anomalies.append({
                 "type": "PVC",
                 "label": "Premature Ventricular Contraction",

@@ -50,6 +50,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const aiConfidenceBadge = document.getElementById('aiConfidenceBadge');
     const aiHrvText = document.getElementById('aiHrvText');
     const aiAnomaliesList = document.getElementById('aiAnomaliesList');
+    const canvasAiWaveform = document.getElementById('canvasAiWaveform');
 
     // Comparison Elements
     const comparisonContainer = document.getElementById('comparisonContainer');
@@ -349,6 +350,29 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (data.edge_connected !== undefined) {
                     updateEdgeStatusUI({ connected: data.edge_connected, activePort: data.edge_port });
                 }
+                if (data.type === 'recording_status') {
+                    if (data.is_recording) {
+                        isRecordingLocal = true;
+                        if (recBadge) recBadge.style.display = 'flex';
+                        if (recBtnText) recBtnText.textContent = 'Stop & Save';
+                        if (wsStatusElem) {
+                            wsStatusElem.className = 'status-indicator connected';
+                            wsStatusElem.querySelector('.label').textContent = 'LIVE RECORDING STREAM';
+                        }
+                    } else {
+                        isRecordingLocal = false;
+                        if (recBadge) recBadge.style.display = 'none';
+                        if (recBtnText) recBtnText.textContent = 'Record & Stream';
+                        if (valHR) valHR.textContent = '--';
+                        if (valRR) valRR.textContent = '--';
+                        if (valECG) valECG.textContent = '0.0';
+                        if (wsStatusElem) {
+                            wsStatusElem.className = 'status-indicator';
+                            wsStatusElem.querySelector('.label').textContent = 'STANDBY (AWAITING STREAM)';
+                        }
+                    }
+                    return;
+                }
                 updateTelemetryUI(data);
             } catch (err) {
                 console.error('[SPA] Error parsing message:', err);
@@ -417,15 +441,19 @@ document.addEventListener('DOMContentLoaded', () => {
                 try {
                     const res = await fetch('/api/recordings/stop', { method: 'POST' });
                     const data = await res.json();
+                    isRecordingLocal = false;
+                    if (recBadge) recBadge.style.display = 'none';
+                    if (recBtnText) recBtnText.textContent = 'Record & Stream';
+                    if (btnRecordToggle) btnRecordToggle.style.background = '';
                     if (data.success && data.session) {
-                        isRecordingLocal = false;
-                        if (recBadge) recBadge.style.display = 'none';
-                        if (recBtnText) recBtnText.textContent = 'Record & Stream';
-                        if (btnRecordToggle) btnRecordToggle.style.background = '';
-                        alert(`Saved Session "${data.session.title}" (${data.session.durationSec}s, Avg HR: ${data.session.avgHR} BPM)`);
+                        console.log(`[Recording] Stopped and saved: ${data.session.title}`);
                     }
                 } catch(e) {
-                    alert(`Error stopping recording: ${e.message}`);
+                    isRecordingLocal = false;
+                    if (recBadge) recBadge.style.display = 'none';
+                    if (recBtnText) recBtnText.textContent = 'Record & Stream';
+                    if (btnRecordToggle) btnRecordToggle.style.background = '';
+                    console.error('Error stopping recording:', e);
                 }
             }
         });
@@ -581,8 +609,17 @@ document.addEventListener('DOMContentLoaded', () => {
                     if (aiAnomaliesList) aiAnomaliesList.innerHTML = html;
                 }
 
-                // Render session waveform with AI anomaly highlights
-                loadAndRenderComparison(sessionId, sessionId, anomalies);
+                // Keep comparison view hidden during single session AI evaluation
+                if (comparisonContainer) comparisonContainer.style.display = 'none';
+
+                // Render single ECG waveform with red anomaly boxes directly in AI card
+                if (canvasAiWaveform && sessionData && sessionData.samples) {
+                    requestAnimationFrame(() => {
+                        renderStaticWaveform(canvasAiWaveform, sessionData.samples, '#10b981', anomalies);
+                    });
+                }
+
+                aiCard.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
 
             } else {
                 if (aiDiagnosisText) aiDiagnosisText.textContent = 'AI Analysis Notice';
@@ -626,27 +663,44 @@ document.addEventListener('DOMContentLoaded', () => {
     async function loadAndRenderComparison(id1, id2, anomalyOverlayA = []) {
         try {
             const res = await fetch(`/api/recordings/compare/paired?id1=${id1}&id2=${id2}`);
-            if (!res.ok) return;
+            if (!res.ok) {
+                alert('Could not retrieve recordings for comparison.');
+                return;
+            }
 
             const data = await res.json();
-            if (data.error || !data.session1 || !data.session2) return;
+            const s1 = data.session1 || data.sessionA;
+            const s2 = data.session2 || data.sessionB;
 
-            const s1 = data.session1;
-            const s2 = data.session2;
+            if (!s1 || !s2) {
+                alert('Invalid session data returned from server.');
+                return;
+            }
 
-            if (compTitleA) compTitleA.textContent = `Session A: ${s1.meta.title}`;
-            if (compMetaA) compMetaA.textContent = `Date: ${new Date(s1.meta.startTime).toLocaleString()} | Avg HR: ${s1.meta.avgHR} BPM | Min/Max: ${s1.meta.minHR}/${s1.meta.maxHR} BPM | Samples: ${s1.meta.sampleCount}`;
+            if (compTitleA) compTitleA.textContent = `Session A: ${s1.meta ? s1.meta.title : 'Session A'}`;
+            if (compMetaA && s1.meta) {
+                compMetaA.textContent = `Date: ${new Date(s1.meta.startTime).toLocaleString()} | Avg HR: ${s1.meta.avgHR} BPM | Min/Max: ${s1.meta.minHR}/${s1.meta.maxHR} BPM | Samples: ${s1.meta.sampleCount}`;
+            }
 
-            if (compTitleB) compTitleB.textContent = `Session B: ${s2.meta.title}`;
-            if (compMetaB) compMetaB.textContent = `Date: ${new Date(s2.meta.startTime).toLocaleString()} | Avg HR: ${s2.meta.avgHR} BPM | Min/Max: ${s2.meta.minHR}/${s2.meta.maxHR} BPM | Samples: ${s2.meta.sampleCount}`;
+            if (compTitleB) compTitleB.textContent = `Session B: ${s2.meta ? s2.meta.title : 'Session B'}`;
+            if (compMetaB && s2.meta) {
+                compMetaB.textContent = `Date: ${new Date(s2.meta.startTime).toLocaleString()} | Avg HR: ${s2.meta.avgHR} BPM | Min/Max: ${s2.meta.minHR}/${s2.meta.maxHR} BPM | Samples: ${s2.meta.sampleCount}`;
+            }
 
-            if (comparisonContainer) comparisonContainer.style.display = 'block';
+            if (comparisonContainer) {
+                comparisonContainer.style.display = 'block';
+                comparisonContainer.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+            }
 
-            renderStaticWaveform(canvasCompareA, s1.samples, '#10b981', anomalyOverlayA);
-            renderStaticWaveform(canvasCompareB, s2.samples, '#3b82f6', []);
+            // Render on next animation frame after container is unhidden
+            requestAnimationFrame(() => {
+                renderStaticWaveform(canvasCompareA, s1.samples, '#10b981', anomalyOverlayA);
+                renderStaticWaveform(canvasCompareB, s2.samples, '#3b82f6', []);
+            });
 
         } catch (e) {
             console.error('Error loading comparison:', e);
+            alert(`Error loading comparison: ${e.message}`);
         }
     }
 
@@ -681,23 +735,34 @@ document.addEventListener('DOMContentLoaded', () => {
             if (s.ecg > maxVal) maxVal = s.ecg;
         });
 
+        // 4x Amplitude Scaling for clear morphology visualization in history & comparison
         const dynamicRange = Math.max(30, (maxVal - minVal) * 1.30);
         const centerY = h / 2;
-        const scaleY = h / dynamicRange;
+        const scaleY = (h / dynamicRange) * 4.0;
         const step = w / samples.length;
 
         // Draw Anomaly Highlight Bounding Boxes if present
         if (anomalyHighlights && anomalyHighlights.length > 0) {
-            ctxComp.fillStyle = 'rgba(239, 68, 68, 0.25)';
-            ctxComp.strokeStyle = '#ef4444';
-            ctxComp.lineWidth = 1.5 * dpr;
-
             anomalyHighlights.forEach(a => {
-                const x1 = a.start_idx * step;
-                const x2 = a.end_idx * step;
-                const boxW = Math.max(12 * dpr, x2 - x1);
-                ctxComp.fillRect(x1, 10, boxW, h - 20);
-                ctxComp.strokeRect(x1, 10, boxW, h - 20);
+                const x1 = Math.max(0, a.start_idx * step);
+                const x2 = Math.min(w, a.end_idx * step);
+                const boxW = Math.max(14 * dpr, x2 - x1);
+
+                // Translucent red anomaly highlight
+                ctxComp.fillStyle = 'rgba(239, 68, 68, 0.20)';
+                ctxComp.fillRect(x1, 15 * dpr, boxW, h - 30 * dpr);
+
+                // Crisp red border around the anomaly event
+                ctxComp.strokeStyle = '#ef4444';
+                ctxComp.lineWidth = 1.8 * dpr;
+                ctxComp.strokeRect(x1, 15 * dpr, boxW, h - 30 * dpr);
+
+                // Anomaly badge tag on top of the box
+                ctxComp.fillStyle = '#ef4444';
+                ctxComp.fillRect(x1, 15 * dpr, Math.min(boxW, 45 * dpr), 14 * dpr);
+                ctxComp.fillStyle = '#ffffff';
+                ctxComp.font = `bold ${9 * dpr}px sans-serif`;
+                ctxComp.fillText(a.type || 'PVC', x1 + 3 * dpr, 25 * dpr);
             });
         }
 

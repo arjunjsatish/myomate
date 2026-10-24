@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>MyoMate - Remote Live ECG & Heart Rate Monitor</title>
+    <title>MyoMate - Doctor Remote Telemetry Portal (Port 3000)</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;600;700&display=swap" rel="stylesheet">
@@ -14,24 +14,18 @@
         <!-- Clean Remote Viewer Header -->
         <header class="app-header">
             <div class="brand">
-                <div class="heart-pulse-icon" id="heartPulse">❤️</div>
+                <div class="heart-pulse-icon" id="heartPulse">👨‍⚕️</div>
                 <div>
-                    <h1>MyoMate <span class="badge-tag">REMOTE VIEWER</span></h1>
-                    <p class="subtitle">ESP32 MAX30001 Live Internet ECG Monitor</p>
+                    <h1>MyoMate <span class="badge-tag" style="background: rgba(59, 130, 246, 0.15); color: #60a5fa; border-color: #3b82f6;">DOCTOR REMOTE VIEWER</span></h1>
+                    <p class="subtitle">Secure Cloud Telemetry & AI Diagnostic Portal</p>
                 </div>
             </div>
 
             <div class="header-status" style="display: flex; align-items: center; gap: 12px;">
-                <!-- Live Recording Control Bar -->
-                <div class="recording-bar" style="display: flex; align-items: center; gap: 8px;">
-                    <input type="text" id="inputSessionTitle" class="input-ctrl" placeholder="Session Title..." style="padding: 6px 12px; font-size: 0.85rem; border-radius: 8px; background: rgba(15,23,42,0.8); border: 1px solid var(--card-border); color: #fff; width: 160px;">
-                    <button class="btn btn-danger" id="btnRecordToggle" style="display: flex; align-items: center; gap: 6px;">
-                        <span class="rec-icon">🔴</span> <span id="recBtnText">Record & Stream</span>
-                    </button>
-                    <div id="recBadge" class="rec-badge" style="display: none; align-items: center; gap: 6px; background: rgba(239, 68, 68, 0.15); border: 1px solid #ef4444; color: #fca5a5; padding: 4px 10px; border-radius: 20px; font-size: 0.8rem; font-family: 'JetBrains Mono', monospace;">
-                        <span class="pulse-dot-red"></span>
-                        <span id="recTimer">00:00</span>
-                    </div>
+                <div id="recBadge" class="rec-badge" style="display: none; align-items: center; gap: 6px; background: rgba(239, 68, 68, 0.15); border: 1px solid #ef4444; color: #fca5a5; padding: 4px 10px; border-radius: 20px; font-size: 0.8rem; font-family: 'JetBrains Mono', monospace;">
+                    <span class="pulse-dot-red"></span>
+                    <span>LIVE INCOMING STREAM</span>
+                    <span id="recTimer">00:00</span>
                 </div>
 
                 <button class="btn btn-secondary" id="btnHistory" style="display: flex; align-items: center; gap: 6px;">
@@ -51,7 +45,7 @@
         </header>
 
         <!-- Main Dashboard Grid -->
-        <main class="dashboard-grid">
+        <main class="dashboard-grid" style="grid-template-columns: repeat(3, 1fr);">
             <!-- Metric Card 1: Heart Rate -->
             <div class="card metric-card hr-card">
                 <div class="card-header">
@@ -107,24 +101,8 @@
                 </div>
             </div>
 
-            <!-- Metric Card 4: Lead Contact Status -->
-            <div class="card metric-card lead-card">
-                <div class="card-header">
-                    <span class="card-title">LEAD CONTACT</span>
-                    <span class="card-icon">🩺</span>
-                </div>
-                <div class="card-body">
-                    <div class="big-metric">
-                        <span class="value lead-ok" id="valLead">CONNECTED</span>
-                    </div>
-                    <div class="sub-stats">
-                        <div class="stat"><span class="stat-lbl">STATUS</span> <span class="stat-val" id="leadDetail">Medical 60Hz Filter OK</span></div>
-                    </div>
-                </div>
-            </div>
-
             <!-- Oscilloscope Canvas Container -->
-            <div class="card oscilloscope-card">
+            <div class="card oscilloscope-card" style="grid-column: span 3;">
                 <div class="oscilloscope-header">
                     <div class="scope-title">
                         <span class="pulse-dot"></span>
@@ -216,8 +194,17 @@
                             </div>
                         </div>
 
-                        <div id="aiAnomaliesList" style="font-size: 0.82rem; color: #94a3b8; border-top: 1px solid var(--card-border); padding-top: 10px;">
+                        <div id="aiAnomaliesList" style="font-size: 0.82rem; color: #94a3b8; border-top: 1px solid var(--card-border); padding-top: 10px; margin-bottom: 14px;">
                             No morphological anomalies detected.
+                        </div>
+
+                        <!-- Dedicated Single ECG Waveform with Red Anomaly Boxes -->
+                        <div id="aiWaveformWrapper" style="position: relative; margin-top: 12px; border-top: 1px solid var(--card-border); padding-top: 14px;">
+                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                                <span style="font-size: 0.85rem; font-weight: 600; color: #10b981;">📈 ECG Waveform & Detected Arrhythmia Events</span>
+                                <span style="font-size: 0.75rem; color: #ef4444; background: rgba(239, 68, 68, 0.15); border: 1px solid #ef4444; padding: 2px 8px; border-radius: 4px;">🟥 Red Box = Detected Anomaly Window</span>
+                            </div>
+                            <canvas id="canvasAiWaveform" style="width: 100%; height: 180px; background: #070a12; border-radius: 8px; border: 1px solid var(--card-border); display: block;"></canvas>
                         </div>
                     </div>
 

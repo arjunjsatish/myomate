@@ -1,14 +1,23 @@
 #include "max30001_handler.h"
 #include <math.h>
 
-// DSP Filter State Variables (128 SPS)
+// DSP Filter State Variables (512 SPS)
 static float dcBaseline     = 0.0f;
-static float filteredECGuV  = 0.0f;
 static float currentECGuV   = 0.0f;
 
-// 5-Point FIR Moving Window Filter (cancels 60Hz AC hum & baseline ripple)
-static float firBuffer[5]   = {0.0f, 0.0f, 0.0f, 0.0f, 0.0f};
-static uint8_t firIndex     = 0;
+// 60 Hz IIR Notch Filter (fs = 512 Hz, f0 = 60 Hz, Q = 8, r = 0.9632)
+// H(z) = (1 - 2*cos(w0)*z^-1 + z^-2) / (1 - 2*r*cos(w0)*z^-1 + r^2*z^-2)
+// w0 = 2 * pi * 60 / 512 = 0.736310775 rad
+// cos(w0) = 0.740951125
+// b0 = 1.0, b1 = -1.48190225, b2 = 1.0
+// a1 = -1.42736825, a2 = 0.92775424 (normalized with gain compensation)
+static float notch_x1 = 0.0f, notch_x2 = 0.0f;
+static float notch_y1 = 0.0f, notch_y2 = 0.0f;
+
+// 40 Hz 2nd-order Butterworth Low-Pass Filter (fs = 512 Hz, fc = 40 Hz)
+// Cutoff at 40 Hz preserves sharp clinical QRS complexes while cutting high-frequency EMG muscle tremor
+static float lp_x1 = 0.0f, lp_x2 = 0.0f;
+static float lp_y1 = 0.0f, lp_y2 = 0.0f;
 
 // Duplicate suppression — track last raw FIFO word
 static uint32_t lastFifoWord = 0xFFFFFFFF;
@@ -127,50 +136,75 @@ bool MAX30001Handler::readSensorData(MAX30001_Data &data) {
 
     // 1. Read ECG Sample directly from MAX30001 ECG_FIFO (0x21)
     uint32_t fifoWord = readReg(ECG_FIFO);
-    uint8_t etag = (fifoWord >> 21) & 0x07;
+    uint8_t etag = (fifoWord >> 3) & 0x07;
 
     // ETAG 0, 1, 2 are valid FIFO samples (000, 001, 010)
     // ETAG 3, 7 = Overflow (trigger FIFO reset)
     // ETAG 6 = FIFO Empty (skip read)
     if (etag == 3 || etag == 7) {
         writeReg(FIFO_RST, 0x000000);
-    } else if (etag < 3 && fifoWord != lastFifoWord) {
-        lastFifoWord = fifoWord;
-
-        uint32_t raw18 = (fifoWord >> 3) & 0x3FFFF;
+        return false;
+    } else if (etag <= 2) {
+        uint32_t raw18 = (fifoWord >> 6) & 0x3FFFF;
         int32_t signed18 = (raw18 & 0x20000) ? (int32_t)(raw18 | 0xFFFC0000) : (int32_t)raw18;
-        float raw_uV = (float)signed18 * 0.095367f;
+        float raw_uV = (float)signed18 * 0.078125f;
 
-        // High-pass DC offset cancellation (0.5 Hz Cutoff)
-        dcBaseline = (0.015f * raw_uV) + (0.985f * dcBaseline);
+        // 1. High-pass DC offset baseline cancellation (0.5 Hz Cutoff)
+        dcBaseline = (0.003f * raw_uV) + (0.997f * dcBaseline);
         float ac_uV = raw_uV - dcBaseline;
 
-        // 5-Point FIR Moving Average Filter (light smoothing only)
-        firBuffer[firIndex] = ac_uV;
-        firIndex = (firIndex + 1) % 5;
-        float fir_uV = (firBuffer[0] + firBuffer[1] + firBuffer[2] + firBuffer[3] + firBuffer[4]) / 5.0f;
+        // 2. 60 Hz Notch Filter (fs = 512 Hz, f0 = 60 Hz)
+        // y[n] = b0*x[n] + b1*x[n-1] + b2*x[n-2] - a1*y[n-1] - a2*y[n-2]
+        float notch_in = ac_uV;
+        float notch_out = (0.96387f * notch_in)
+                        - (1.42841f * notch_x1)
+                        + (0.96387f * notch_x2)
+                        + (1.42841f * notch_y1)
+                        - (0.92775f * notch_y2);
+        notch_x2 = notch_x1;
+        notch_x1 = notch_in;
+        notch_y2 = notch_y1;
+        notch_y1 = notch_out;
 
-        // Light exponential smoothing (alpha=0.5) — at 512 SPS this gives ~55 Hz cutoff
-        // preserving ECG dynamics while cutting high-freq jitter
-        filteredECGuV = (0.5f * fir_uV) + (0.5f * filteredECGuV);
+        // 3. 40 Hz 2nd-Order Low-Pass Filter (fs = 512 Hz, fc = 40 Hz)
+        // Eliminates EMG muscle tremor and high-frequency noise
+        float lp_in = notch_out;
+        float lp_out = (0.04613f * lp_in)
+                     + (0.09226f * lp_x1)
+                     + (0.04613f * lp_x2)
+                     + (1.30728f * lp_y1)
+                     - (0.49181f * lp_y2);
+        lp_x2 = lp_x1;
+        lp_x1 = lp_in;
+        lp_y2 = lp_y1;
+        lp_y1 = lp_out;
 
-        if (isnan(filteredECGuV) || isinf(filteredECGuV)) {
-            filteredECGuV = 0.0f;
+        if (isnan(lp_out) || isinf(lp_out)) {
+            lp_out = 0.0f;
             dcBaseline = 0.0f;
+            notch_x1 = notch_x2 = notch_y1 = notch_y2 = 0.0f;
+            lp_x1 = lp_x2 = lp_y1 = lp_y2 = 0.0f;
         }
 
-        currentECGuV = filteredECGuV;
+        currentECGuV = lp_out;
         data.new_ecg = true;
+    } else {
+        // FIFO Empty (ETAG 6) or unhandled
+        return false;
     }
 
-    // 2. Read R-R Interval & Heart Rate from MAX30001 RTOR Engine
-    max30001_rtor_data_t rtorData;
-    max30001_error_t err = _sensor.getRtoRData(&rtorData);
-    if (err == MAX30001_SUCCESS && rtorData.rr_detected) {
-        if (rtorData.heart_rate_bpm >= 30 && rtorData.heart_rate_bpm <= 220) {
-            lastHeartRate = rtorData.heart_rate_bpm;
-            lastRRms = rtorData.rr_interval_ms;
-            data.new_rtor = true;
+    // 2. Read R-R Interval & Heart Rate from MAX30001 RTOR Engine (throttled to every 100ms)
+    static unsigned long lastRtorCheckMs = 0;
+    if (millis() - lastRtorCheckMs >= 100) {
+        lastRtorCheckMs = millis();
+        max30001_rtor_data_t rtorData;
+        max30001_error_t err = _sensor.getRtoRData(&rtorData);
+        if (err == MAX30001_SUCCESS && rtorData.rr_detected) {
+            if (rtorData.heart_rate_bpm >= 30 && rtorData.heart_rate_bpm <= 220) {
+                lastHeartRate = rtorData.heart_rate_bpm;
+                lastRRms = rtorData.rr_interval_ms;
+                data.new_rtor = true;
+            }
         }
     }
 
